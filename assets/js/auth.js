@@ -7,6 +7,7 @@ import {
   updateProfile
 } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js';
 import {
+  collection,
   doc,
   serverTimestamp,
   writeBatch
@@ -125,6 +126,15 @@ async function createAccount(form) {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
+
+  const defaultTransactions = [
+    { description: 'Starting Balance', amount: 0, category: 'General', type: 'income', createdAt: serverTimestamp() },
+    { description: 'Example Expense', amount: 0, category: 'General', type: 'expense', createdAt: serverTimestamp() }
+  ];
+  defaultTransactions.forEach((transaction) => {
+    batch.set(doc(collection(db, 'users', uid, 'transactions')), transaction);
+  });
+
   await batch.commit();
 
   setAuthMessage(form, 'Account created. Redirecting...', 'success');

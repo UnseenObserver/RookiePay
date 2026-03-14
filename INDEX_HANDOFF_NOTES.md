@@ -2,6 +2,21 @@
 
 This file is a reminder of what is currently wired into `index.html` on this branch so it can be compared against the `Justine` branch later.
 
+## Session log (March 14, 2026)
+
+### Firebase write issue — resolved
+- Root cause was **Email/Password sign-in not enabled** in the Firebase Console and **Firestore not yet created / rules blocking writes**.
+- Fix: enabled Email/Password auth and set Firestore rules to allow authenticated users to read/write only their own `users/{uid}/**` path.
+
+### Default subcollection seeding — attempted, abandoned
+- Tried seeding default documents into `users/{uid}/transactions` inside the same `writeBatch` call during sign-up in `auth.js`.
+- Also added `collection` to the Firestore import in `auth.js` for this purpose.
+- Did not work as intended; user plans to take a different approach for initializing user data.
+- The `collection` import added to `auth.js` is still there but currently unused by the seeding logic — can be removed if the new approach doesn't need it.
+
+### Next step (owner's intent)
+- User wants a **different approach** to initializing the transactions subcollection / default values — specifics TBD.
+
 ## What was changed in `index.html`
 
 - Moved the stylesheet reference to `assets/css/styles.css`.
