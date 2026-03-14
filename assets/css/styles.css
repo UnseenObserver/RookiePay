@@ -1,4 +1,4 @@
-/* ── Reset & Base ── */
+/* Base */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -17,7 +17,7 @@ a {
   color: inherit;
 }
 
-/* ── Layout ── */
+/* Layout */
 .container {
   max-width: 860px;
   margin: 0 auto;
@@ -26,7 +26,7 @@ a {
   gap: 24px;
 }
 
-/* ── Header ── */
+/* Header */
 header {
   text-align: center;
 }
@@ -64,7 +64,23 @@ header h1 {
   font-size: 0.95rem;
 }
 
-/* ── Summary Cards ── */
+.page-message {
+  min-height: 1.25rem;
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #3730a3;
+}
+
+.page-message.error {
+  color: #b91c1c;
+}
+
+.page-message.success {
+  color: #15803d;
+}
+
+/* Summary */
 .summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -82,9 +98,9 @@ header h1 {
   border-top: 4px solid transparent;
 }
 
-.card.balance  { border-top-color: #4f46e5; }
-.card.income   { border-top-color: #22c55e; }
-.card.expense  { border-top-color: #ef4444; }
+.card.balance { border-top-color: #4f46e5; }
+.card.income { border-top-color: #22c55e; }
+.card.expense { border-top-color: #ef4444; }
 
 .card-label {
   font-size: 0.8rem;
@@ -103,7 +119,7 @@ header h1 {
 .card-amount.positive { color: #22c55e; }
 .card-amount.negative { color: #ef4444; }
 
-/* ── Form Section ── */
+/* Sections */
 .form-section,
 .history-section {
   background: #fff;
@@ -170,7 +186,7 @@ header h1 {
   transition: background 0.2s, transform 0.1s;
 }
 
-.btn-add:hover  { background: #4338ca; }
+.btn-add:hover { background: #4338ca; }
 .btn-add:active { transform: scale(0.98); }
 
 .btn-secondary {
@@ -195,7 +211,7 @@ header h1 {
   transform: scale(0.98);
 }
 
-/* ── History Section ── */
+/* History */
 .history-header {
   display: flex;
   justify-content: space-between;
@@ -244,7 +260,7 @@ header h1 {
   background: #f8f9fa;
 }
 
-.transaction-item.income  { border-left-color: #22c55e; }
+.transaction-item.income { border-left-color: #22c55e; }
 .transaction-item.expense { border-left-color: #ef4444; }
 
 .transaction-info {
@@ -274,7 +290,7 @@ header h1 {
   font-weight: 700;
 }
 
-.transaction-item.income  .transaction-amount { color: #22c55e; }
+.transaction-item.income .transaction-amount { color: #22c55e; }
 .transaction-item.expense .transaction-amount { color: #ef4444; }
 
 .btn-delete {
@@ -290,7 +306,7 @@ header h1 {
 
 .btn-delete:hover { color: #ef4444; }
 
-/* ── Auth Page ── */
+/* Auth Page */
 .auth-page {
   background:
     radial-gradient(circle at top left, rgba(79, 70, 229, 0.18), transparent 32%),
@@ -507,7 +523,13 @@ header h1 {
   margin-top: 4px;
 }
 
-/* ── Responsive ── */
+/* Responsive */
+@media (max-width: 900px) {
+  .auth-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 640px) {
   .header-top {
     flex-direction: column;
@@ -523,12 +545,6 @@ header h1 {
 
   .form-row {
     grid-template-columns: 1fr 1fr;
-  }
-}
-
-@media (max-width: 900px) {
-  .auth-shell {
-    grid-template-columns: 1fr;
   }
 }
 

@@ -1,12 +1,14 @@
-const STATIC_CACHE = 'budget-tracker-static-v1';
+const STATIC_CACHE = 'budget-tracker-static-v2';
 
 const STATIC_ASSETS = [
   './',
   './index.html',
   './login.html',
-  './styles.css',
-  './firebase-config.js',
-  './cache-registration.js'
+  './assets/css/styles.css',
+  './assets/js/app.js',
+  './assets/js/auth.js',
+  './assets/js/cache-registration.js',
+  './assets/js/firebase-config.js'
 ];
 
 self.addEventListener('install', (event) => {

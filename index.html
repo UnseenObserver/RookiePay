@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Budget Tracker</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
 <body>
   <div class="container">
@@ -21,6 +21,8 @@
         </div>
       </div>
     </header>
+
+    <p class="page-message" id="page-message" aria-live="polite"></p>
 
     <!-- Summary Cards -->
     <section class="summary">
@@ -88,186 +90,7 @@
     </section>
   </div>
 
-  <script src="cache-registration.js"></script>
-
-  <script type="module">
-    import { auth, db } from './firebase-config.js';
-    import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js';
-    import {
-      addDoc,
-      collection,
-      deleteDoc,
-      doc,
-      onSnapshot,
-      orderBy,
-      query,
-      serverTimestamp,
-      writeBatch
-    } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js';
-
-    const form = document.getElementById('transaction-form');
-    const list = document.getElementById('transaction-list');
-    const clearBtn = document.getElementById('clear-btn');
-    const logoutBtn = document.getElementById('logout-btn');
-    const authLink = document.getElementById('auth-link');
-    const userEmail = document.getElementById('user-email');
-
-    let transactions = [];
-    let currentUser = null;
-    let unsubscribeTransactions = null;
-
-    function formatCurrency(amount) {
-      return '$' + amount.toFixed(2);
-    }
-
-    function updateSummary() {
-      const income = transactions
-        .filter((transaction) => transaction.type === 'income')
-        .reduce((sum, transaction) => sum + transaction.amount, 0);
-      const expense = transactions
-        .filter((transaction) => transaction.type === 'expense')
-        .reduce((sum, transaction) => sum + transaction.amount, 0);
-      const balance = income - expense;
-
-      const balanceEl = document.getElementById('balance');
-      balanceEl.textContent = formatCurrency(balance);
-      balanceEl.className = `card-amount ${balance >= 0 ? 'positive' : 'negative'}`;
-
-      document.getElementById('total-income').textContent = formatCurrency(income);
-      document.getElementById('total-expense').textContent = formatCurrency(expense);
-    }
-
-    function renderList() {
-      if (transactions.length === 0) {
-        list.innerHTML = '<li class="empty-state">No transactions yet. Add one above!</li>';
-        return;
-      }
-
-      list.innerHTML = transactions.map((transaction) => `
-        <li class="transaction-item ${transaction.type}">
-          <div class="transaction-info">
-            <span class="transaction-desc">${transaction.description}</span>
-            <span class="transaction-category">${transaction.category}</span>
-          </div>
-          <div class="transaction-right">
-            <span class="transaction-amount">${transaction.type === 'income' ? '+' : '-'}${formatCurrency(transaction.amount)}</span>
-            <button class="btn-delete" type="button" data-id="${transaction.id}">✕</button>
-          </div>
-        </li>
-      `).join('');
-    }
-
-    async function deleteTransaction(transactionId) {
-      if (!currentUser || !transactionId) {
-        return;
-      }
-
-      await deleteDoc(doc(db, 'users', currentUser.uid, 'transactions', transactionId));
-    }
-
-    function subscribeToTransactions(uid) {
-      if (unsubscribeTransactions) {
-        unsubscribeTransactions();
-      }
-
-      const transactionsRef = collection(db, 'users', uid, 'transactions');
-      const transactionsQuery = query(transactionsRef, orderBy('createdAt', 'desc'));
-
-      unsubscribeTransactions = onSnapshot(transactionsQuery, (snapshot) => {
-        transactions = snapshot.docs.map((entry) => {
-          const data = entry.data();
-          return {
-            id: entry.id,
-            description: data.description || 'Untitled',
-            category: data.category || 'General',
-            type: data.type === 'income' ? 'income' : 'expense',
-            amount: Number(data.amount) || 0
-          };
-        });
-
-        renderList();
-        updateSummary();
-      });
-    }
-
-    list.addEventListener('click', async (event) => {
-      const button = event.target.closest('.btn-delete');
-      if (!button) {
-        return;
-      }
-
-      await deleteTransaction(button.dataset.id);
-    });
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-
-      if (!currentUser) {
-        return;
-      }
-
-      const description = document.getElementById('description').value.trim();
-      const amount = parseFloat(document.getElementById('amount').value);
-      const category = document.getElementById('category').value;
-      const type = document.getElementById('type').value;
-
-      if (!description || Number.isNaN(amount) || amount <= 0) {
-        return;
-      }
-
-      await addDoc(collection(db, 'users', currentUser.uid, 'transactions'), {
-        description,
-        amount,
-        category,
-        type,
-        createdAt: serverTimestamp()
-      });
-
-      form.reset();
-    });
-
-    clearBtn.addEventListener('click', async () => {
-      if (!currentUser || transactions.length === 0) {
-        return;
-      }
-
-      if (!confirm('Clear all transactions?')) {
-        return;
-      }
-
-      const batch = writeBatch(db);
-
-      transactions.forEach((transaction) => {
-        const ref = doc(db, 'users', currentUser.uid, 'transactions', transaction.id);
-        batch.delete(ref);
-      });
-
-      await batch.commit();
-    });
-
-    logoutBtn.addEventListener('click', async () => {
-      await signOut(auth);
-      window.location.href = 'login.html';
-    });
-
-    onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        if (unsubscribeTransactions) {
-          unsubscribeTransactions();
-          unsubscribeTransactions = null;
-        }
-        window.location.replace('login.html');
-        return;
-      }
-
-      currentUser = user;
-      userEmail.textContent = user.email || user.displayName || 'Signed in';
-      userEmail.hidden = false;
-      authLink.hidden = true;
-      logoutBtn.hidden = false;
-
-      subscribeToTransactions(user.uid);
-    });
-  </script>
+  <script src="assets/js/cache-registration.js"></script>
+  <script type="module" src="assets/js/app.js"></script>
 </body>
 </html>
