@@ -40,6 +40,7 @@ const elements = {
   goalForm: document.getElementById('goal-form'),
   goalModalTitle: document.getElementById('goal-modal-title'),
   goalsList: document.getElementById('goals-list'),
+  goalsHeaderMessage: document.getElementById('goals-header-message'),
   headerTools: document.querySelector('.header-tools'),
   openSettingsButton: document.getElementById('open-settings'),
   settingsPopover: document.getElementById('settings-popover')
@@ -53,7 +54,14 @@ let splitRatioRefreshIntervalId = null;
 let goals = [];
 let editingGoalId = null;
 let lastPersistedSavingsAllocations = {};
-const SPLIT_RATIO_REFRESH_MS = 5 * 60 * 1000;
+let subPageTab = null;
+let subPagePanel = null;
+let goalMessageTimeoutId = null;
+let subPagePrevActiveTab = 'dashboard';
+let subPageHeightSyncIntervalId = null;
+let pageSwitchTimeoutId = null;
+let pageSwitchCleanupTimeoutId = null;
+const PAGE_SWITCH_FADE_MS = 110;
 const DEFAULT_SPLIT_RATIOS = {
   percentageCategories: [
     { name: 'Entertainment', percent: 40 },
@@ -76,6 +84,24 @@ function asNumber(value) {
 
 function formatCurrency(amount) {
   return `$${amount.toFixed(2)}`;
+}
+
+function setGoalMessage(text = '', type = '') {
+  const el = elements.goalsHeaderMessage;
+  if (!el) return;
+  if (goalMessageTimeoutId) {
+    clearTimeout(goalMessageTimeoutId);
+    goalMessageTimeoutId = null;
+  }
+  el.textContent = text;
+  el.className = 'goals-header-message' + (type ? ` ${type}` : '');
+  if (text) {
+    goalMessageTimeoutId = setTimeout(() => {
+      el.textContent = '';
+      el.className = 'goals-header-message';
+      goalMessageTimeoutId = null;
+    }, 3000);
+  }
 }
 
 function setPageMessage(text = '', type = '') {
@@ -371,16 +397,32 @@ function populateExpenseCategoryDropdown() {
 
 function startSplitRatioAutoRefresh(userId) {
   if (splitRatioRefreshIntervalId) {
-    clearInterval(splitRatioRefreshIntervalId);
+    splitRatioRefreshIntervalId();
   }
 
-  splitRatioRefreshIntervalId = setInterval(async () => {
-    if (!currentUser || currentUser.uid !== userId) {
-      return;
-    }
+  const percentageRef = doc(db, 'users', userId, 'splitRatios', 'percentageCategories');
+  const billsRef = doc(db, 'users', userId, 'splitRatios', 'billCategories');
+  let firstPercentFire = true;
+  let firstBillsFire = true;
 
+  const unsubPercent = onSnapshot(percentageRef, async () => {
+    if (firstPercentFire) { firstPercentFire = false; return; }
     await loadSplitRatios(userId);
-  }, SPLIT_RATIO_REFRESH_MS);
+  }, (error) => {
+    console.warn('Could not listen to split ratio categories:', error);
+  });
+
+  const unsubBills = onSnapshot(billsRef, async () => {
+    if (firstBillsFire) { firstBillsFire = false; return; }
+    await loadSplitRatios(userId);
+  }, (error) => {
+    console.warn('Could not listen to bill categories:', error);
+  });
+
+  splitRatioRefreshIntervalId = () => {
+    unsubPercent();
+    unsubBills();
+  };
 }
 
 function stopSplitRatioAutoRefresh() {
@@ -388,7 +430,7 @@ function stopSplitRatioAutoRefresh() {
     return;
   }
 
-  clearInterval(splitRatioRefreshIntervalId);
+  splitRatioRefreshIntervalId();
   splitRatioRefreshIntervalId = null;
 }
 
@@ -431,7 +473,51 @@ function toggleTransactionModal(show) {
   }
 }
 
-function setActiveTab(tabKey) {
+function withPageFadeTransition(applySwitch) {
+  const currentPanel = document.querySelector('.tab-panel:not([hidden])');
+
+  if (!currentPanel) {
+    applySwitch();
+    return;
+  }
+
+  if (pageSwitchTimeoutId) {
+    clearTimeout(pageSwitchTimeoutId);
+    pageSwitchTimeoutId = null;
+  }
+
+  if (pageSwitchCleanupTimeoutId) {
+    clearTimeout(pageSwitchCleanupTimeoutId);
+    pageSwitchCleanupTimeoutId = null;
+  }
+
+  currentPanel.classList.remove('panel-fade-in');
+  currentPanel.classList.add('panel-fade-out');
+
+  pageSwitchTimeoutId = window.setTimeout(() => {
+    applySwitch();
+    currentPanel.classList.remove('panel-fade-out');
+
+    const nextPanel = document.querySelector('.tab-panel:not([hidden])');
+
+    if (nextPanel) {
+      nextPanel.classList.add('panel-fade-in');
+      pageSwitchCleanupTimeoutId = window.setTimeout(() => {
+        nextPanel.classList.remove('panel-fade-in');
+      }, PAGE_SWITCH_FADE_MS);
+    }
+  }, PAGE_SWITCH_FADE_MS);
+}
+
+function applyStaticTab(tabKey) {
+  if (subPageTab) {
+    subPageTab.classList.remove('active');
+    subPageTab.setAttribute('aria-selected', 'false');
+  }
+  if (subPagePanel) {
+    subPagePanel.hidden = true;
+  }
+
   elements.tabs.forEach((tab) => {
     const isActive = tab.dataset.tab === tabKey;
     tab.classList.toggle('active', isActive);
@@ -441,6 +527,15 @@ function setActiveTab(tabKey) {
   elements.panels.forEach((panel) => {
     panel.hidden = panel.dataset.panel !== tabKey;
   });
+}
+
+function setActiveTab(tabKey, options = {}) {
+  if (options.skipAnimation) {
+    applyStaticTab(tabKey);
+    return;
+  }
+
+  withPageFadeTransition(() => applyStaticTab(tabKey));
 }
 
 async function removeTransaction(transactionId) {
@@ -705,12 +800,148 @@ function toggleSettingsPopover(show) {
     return;
   }
 
+  const wasOpen = !elements.settingsPopover.hidden;
+
   elements.settingsPopover.hidden = !show;
   elements.openSettingsButton.setAttribute('aria-expanded', show ? 'true' : 'false');
 
-  if (!show) {
+  if (!show && wasOpen) {
     elements.openSettingsButton.focus();
   }
+}
+
+function applySubPageActivation() {
+  const currentlyActive = [...elements.tabs].find((t) => t.classList.contains('active'));
+  if (currentlyActive) {
+    subPagePrevActiveTab = currentlyActive.dataset.tab;
+  }
+
+  elements.tabs.forEach((tab) => {
+    tab.classList.remove('active');
+    tab.setAttribute('aria-selected', 'false');
+  });
+  elements.panels.forEach((panel) => { panel.hidden = true; });
+
+  if (subPageTab) {
+    subPageTab.classList.add('active');
+    subPageTab.setAttribute('aria-selected', 'true');
+  }
+  if (subPagePanel) {
+    subPagePanel.hidden = false;
+  }
+}
+
+function activateSubPage(options = {}) {
+  if (options.skipAnimation) {
+    applySubPageActivation();
+    return;
+  }
+
+  withPageFadeTransition(() => applySubPageActivation());
+}
+
+function openSubPage(url, label) {
+  toggleSettingsPopover(false);
+
+  if (subPagePanel && subPagePanel.dataset.subpageUrl === url) {
+    activateSubPage();
+    return;
+  }
+
+  if (subPageTab) {
+    subPageTab.remove();
+    subPageTab = null;
+  }
+  if (subPagePanel) {
+    subPagePanel.remove();
+    subPagePanel = null;
+  }
+  if (subPageHeightSyncIntervalId) {
+    clearInterval(subPageHeightSyncIntervalId);
+    subPageHeightSyncIntervalId = null;
+  }
+
+  subPageTab = document.createElement('button');
+  subPageTab.className = 'tab';
+  subPageTab.setAttribute('role', 'tab');
+  subPageTab.setAttribute('aria-selected', 'false');
+  subPageTab.innerHTML = `${label}<span class="tab-close-btn" aria-label="Close ${label}" title="Close">&#x2715;</span>`;
+
+  subPageTab.addEventListener('click', (event) => {
+    if (event.target.closest('.tab-close-btn')) {
+      closeSubPage();
+      return;
+    }
+    activateSubPage();
+  });
+
+  elements.tabs[elements.tabs.length - 1].closest('.tabs').appendChild(subPageTab);
+
+  subPagePanel = document.createElement('div');
+  subPagePanel.className = 'tab-panel';
+  subPagePanel.dataset.subpageUrl = url;
+  subPagePanel.hidden = true;
+
+  const iframe = document.createElement('iframe');
+  iframe.className = 'subpage-iframe';
+  iframe.src = `${url}?embedded=1`;
+  iframe.title = label;
+  iframe.setAttribute('scrolling', 'no');
+
+  const syncIframeHeight = () => {
+    try {
+      const frameDocument = iframe.contentWindow?.document;
+
+      if (!frameDocument) {
+        return;
+      }
+
+      const bodyHeight = frameDocument.body?.scrollHeight || 0;
+      const docHeight = frameDocument.documentElement?.scrollHeight || 0;
+      const nextHeight = Math.max(bodyHeight, docHeight, 600);
+      iframe.style.height = `${nextHeight}px`;
+    } catch {
+      iframe.style.height = '600px';
+    }
+  };
+
+  iframe.addEventListener('load', () => {
+    syncIframeHeight();
+
+    try {
+      const frameWindow = iframe.contentWindow;
+      const frameDocument = frameWindow?.document;
+
+      frameWindow?.addEventListener('resize', syncIframeHeight);
+      frameDocument?.addEventListener('input', syncIframeHeight, true);
+      frameDocument?.addEventListener('change', syncIframeHeight, true);
+      subPageHeightSyncIntervalId = setInterval(syncIframeHeight, 500);
+    } catch {
+      // no-op
+    }
+  });
+
+  subPagePanel.appendChild(iframe);
+
+  document.querySelector('[data-panel="history"]').after(subPagePanel);
+
+  activateSubPage();
+}
+
+function closeSubPage() {
+  if (subPageTab) {
+    subPageTab.remove();
+    subPageTab = null;
+  }
+  if (subPagePanel) {
+    subPagePanel.remove();
+    subPagePanel = null;
+  }
+  if (subPageHeightSyncIntervalId) {
+    clearInterval(subPageHeightSyncIntervalId);
+    subPageHeightSyncIntervalId = null;
+  }
+  setActiveTab(subPagePrevActiveTab || 'dashboard');
 }
 
 function openCreateGoalModal() {
@@ -746,12 +977,12 @@ async function deleteGoal(index) {
   }
 
   if (!currentUser) {
-    setPageMessage('You must be logged in to delete a goal.', 'error');
+    setGoalMessage('You must be logged in to delete a goal.', 'error');
     return;
   }
 
   await deleteDoc(doc(db, 'users', currentUser.uid, 'savingsGoals', goals[index].id));
-  setPageMessage('Savings goal deleted.', 'success');
+  setGoalMessage('Savings goal deleted.', 'success');
 }
 
 async function addSavings(index) {
@@ -767,7 +998,7 @@ async function addSavings(index) {
   }
 
   if (!currentUser) {
-    setPageMessage('You must be logged in to update savings.', 'error');
+    setGoalMessage('You must be logged in to update savings.', 'error');
     return;
   }
 
@@ -779,14 +1010,14 @@ async function addSavings(index) {
     updatedAt: serverTimestamp()
   }, { merge: true });
 
-  setPageMessage('Savings updated.', 'success');
+  setGoalMessage('Savings updated.', 'success');
 }
 
 async function handleGoalFormSubmit(event) {
   event.preventDefault();
 
   if (!currentUser) {
-    setPageMessage('You must be logged in to save goals.', 'error');
+    setGoalMessage('You must be logged in to save goals.', 'error');
     return;
   }
 
@@ -795,7 +1026,7 @@ async function handleGoalFormSubmit(event) {
   const saved = parseFloat(document.getElementById('goal-saved').value) || 0;
 
   if (!name || Number.isNaN(amount) || amount <= 0) {
-    setPageMessage('Please provide a valid goal name and target amount.', 'error');
+    setGoalMessage('Please provide a valid goal name and target amount.', 'error');
     return;
   }
 
@@ -808,13 +1039,13 @@ async function handleGoalFormSubmit(event) {
 
   if (editingGoalId) {
     await setDoc(doc(db, 'users', currentUser.uid, 'savingsGoals', editingGoalId), payload, { merge: true });
-    setPageMessage('Savings goal updated.', 'success');
+    setGoalMessage('Savings goal updated.', 'success');
   } else {
     await addDoc(collection(db, 'users', currentUser.uid, 'savingsGoals'), {
       ...payload,
       createdAt: serverTimestamp()
     });
-    setPageMessage('Savings goal created.', 'success');
+    setGoalMessage('Savings goal created.', 'success');
   }
 
   elements.goalForm.reset();
@@ -1036,13 +1267,31 @@ function setupListeners() {
 
   if (elements.openPercentagesButton) {
     elements.openPercentagesButton.addEventListener('click', () => {
-      window.location.href = 'splitRatio.html';
+      openSubPage('splitRatio.html', 'Split Ratios');
     });
   }
+
+  document.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-subpage]');
+    if (target) {
+      openSubPage(target.dataset.subpage, target.dataset.subpageLabel || 'Page');
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    const target = event.target.closest('[data-subpage]');
+    if (target && target.tagName !== 'BUTTON') {
+      event.preventDefault();
+      openSubPage(target.dataset.subpage, target.dataset.subpageLabel || 'Page');
+    }
+  });
 }
 
 function init() {
-  setActiveTab('dashboard');
+  setActiveTab('dashboard', { skipAnimation: true });
   renderGoals();
   setupListeners();
   onAuthStateChanged(auth, handleAuthStateChanged);

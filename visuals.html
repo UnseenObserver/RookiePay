@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MoneyFirst | Visual Preferences</title>
+  <link href="https://fonts.googleapis.com/css2?family=Margarine&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-title">
+        <h1>MoneyFirst</h1>
+        <p class="subtitle">Visual Preferences</p>
+      </div>
+      <div class="header-tools">
+        <a class="btn-secondary" href="dashboard.html">Back to Dashboard</a>
+      </div>
+    </header>
+
+    <p class="page-message" id="visuals-message" aria-live="polite"></p>
+
+    <section class="form-section visuals-section">
+      <h2>Theme Presets</h2>
+      <p class="visuals-helper-copy">Pick one preset to control background and accent colors, then save.</p>
+      <div class="visuals-presets-grid" id="visuals-presets-grid"></div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="visuals-animation-mode">Animation Speed</label>
+          <select id="visuals-animation-mode">
+            <option value="normal">Normal</option>
+            <option value="slow">Slow</option>
+            <option value="fast">Fast</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="visuals-actions">
+        <button type="button" class="btn-add" id="visuals-save-btn">Save Visual Preferences</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="assets/js/cache-registration.js"></script>
+  <script type="module" src="assets/js/theme.js"></script>
+  <script>if (new URLSearchParams(location.search).get('embedded') === '1') document.body.classList.add('embedded');</script>
+  <script type="module" src="assets/js/visuals.js"></script>
+</body>
+</html>

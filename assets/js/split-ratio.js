@@ -42,6 +42,7 @@ let savingsGoalCategories = [];
 let billCategories = [];
 let lastSavedPayload = null;
 let availableSavingsGoals = [];
+const UNSPECIFIED_CATEGORY_NAME = 'Unspecified';
 
 function asNumber(value) {
   const parsed = Number(value);
@@ -62,10 +63,12 @@ function normalizePercentCategories(categories) {
     return DEFAULT_SPLIT_RATIOS.percentageCategories.map((category) => ({ ...category }));
   }
 
-  return categories.map((category, index) => ({
+  const normalized = categories.map((category, index) => ({
     name: String(category?.name || `Category ${index + 1}`).trim() || `Category ${index + 1}`,
     percent: Math.max(0, asNumber(category?.percent))
   }));
+
+  return ensureUnspecifiedCategory(normalized);
 }
 
 function normalizeSavingsGoalCategories(categories) {
@@ -96,8 +99,69 @@ function getPercentTotal() {
   return categoryTotal + goalsTotal;
 }
 
+function isUnspecifiedCategory(category) {
+  return String(category?.name || '').trim().toLowerCase() === UNSPECIFIED_CATEGORY_NAME.toLowerCase();
+}
+
+function findUnspecifiedCategoryIndex(categories) {
+  return categories.findIndex((category) => isUnspecifiedCategory(category));
+}
+
+function ensureUnspecifiedCategory(categories) {
+  const clone = categories.map((category) => ({ ...category }));
+  const index = findUnspecifiedCategoryIndex(clone);
+
+  if (index === -1) {
+    clone.push({ name: UNSPECIFIED_CATEGORY_NAME, percent: 0 });
+    return clone;
+  }
+
+  clone[index].name = UNSPECIFIED_CATEGORY_NAME;
+  clone[index].percent = Math.max(0, asNumber(clone[index].percent));
+  return clone;
+}
+
+function syncUnspecifiedPercentageCategory() {
+  percentageCategories = ensureUnspecifiedCategory(percentageCategories);
+
+  const unspecifiedIndex = findUnspecifiedCategoryIndex(percentageCategories);
+
+  const nonUnspecifiedTotal = percentageCategories
+    .filter((_, index) => index !== unspecifiedIndex)
+    .reduce((sum, category) => sum + asNumber(category.percent), 0);
+
+  const goalTotal = savingsGoalCategories.reduce((sum, category) => sum + asNumber(category.percent), 0);
+  const undistributedPercent = Math.max(0, 100 - (nonUnspecifiedTotal + goalTotal));
+
+  percentageCategories[unspecifiedIndex].percent = Math.round(undistributedPercent * 100) / 100;
+}
+
+function syncSavingsGoalAllocationsWithGoals() {
+  const validGoalNames = new Set(availableSavingsGoals);
+  let removedPercentTotal = 0;
+
+  savingsGoalCategories = savingsGoalCategories.filter((category) => {
+    const goalName = String(category.goalName || '').trim();
+
+    if (validGoalNames.has(goalName)) {
+      return true;
+    }
+
+    removedPercentTotal += Math.max(0, asNumber(category.percent));
+    return false;
+  });
+
+  if (removedPercentTotal > 0) {
+    percentageCategories = ensureUnspecifiedCategory(percentageCategories);
+    const unspecifiedIndex = findUnspecifiedCategoryIndex(percentageCategories);
+    percentageCategories[unspecifiedIndex].percent += removedPercentTotal;
+  }
+
+  syncUnspecifiedPercentageCategory();
+}
+
 function updateSaveButtonsState(total) {
-  const canSave = total === 100;
+  const canSave = total >= 0;
 
   if (elements.saveTopButton) {
     elements.saveTopButton.disabled = !canSave;
@@ -109,17 +173,24 @@ function updateSaveButtonsState(total) {
 }
 
 function renderPercentTotal() {
-  const total = getPercentTotal();
-  const guidance = total === 100
-    ? `Percentage total: ${total}% (ready to save).`
-    : `Percentage total: ${total}% (must equal 100%).`;
+  syncUnspecifiedPercentageCategory();
 
-  setMessage(guidance, total === 100 ? 'success' : 'error');
+  const total = getPercentTotal();
+  const overAllocated = total > 100;
+  const guidance = overAllocated
+    ? `Percentage total: ${total}% (over 100%, please reduce some allocations).`
+    : `Percentage total: ${total}% (any undistributed amount is sent to ${UNSPECIFIED_CATEGORY_NAME}).`;
+
+  setMessage(guidance, overAllocated ? 'error' : 'success');
   updateSaveButtonsState(total);
 }
 
 function updatePercentCategory(index, key, value) {
   if (!percentageCategories[index]) {
+    return;
+  }
+
+  if (isUnspecifiedCategory(percentageCategories[index])) {
     return;
   }
 
@@ -160,6 +231,11 @@ function updateSavingsGoalCategory(index, key, value) {
 }
 
 function removePercentCategory(index) {
+  if (isUnspecifiedCategory(percentageCategories[index])) {
+    setMessage(`${UNSPECIFIED_CATEGORY_NAME} is managed automatically.`, 'error');
+    return;
+  }
+
   if (percentageCategories.length <= 1) {
     setMessage('At least one percentage category is required.', 'error');
     return;
@@ -191,13 +267,13 @@ function renderPercentCategories() {
     <div class="split-row" data-index="${index}">
       <div class="form-group">
         <label>Category</label>
-        <input type="text" data-role="percent-name" value="${category.name}" />
+        <input type="text" data-role="percent-name" value="${category.name}" ${isUnspecifiedCategory(category) ? 'readonly' : ''} />
       </div>
       <div class="form-group">
         <label>Percent (%)</label>
-        <input type="number" min="0" max="100" step="1" data-role="percent-value" value="${category.percent}" />
+        <input type="number" min="0" max="100" step="1" data-role="percent-value" value="${category.percent}" ${isUnspecifiedCategory(category) ? 'readonly' : ''} />
       </div>
-      <button type="button" class="btn-secondary split-row-remove" data-role="remove-percent">✕</button>
+      <button type="button" class="btn-secondary split-row-remove" data-role="remove-percent" ${isUnspecifiedCategory(category) ? 'disabled title="Managed automatically"' : ''}>✕</button>
     </div>
   `).join('');
 }
@@ -331,8 +407,8 @@ function validatePayload(payload) {
   const savingsGoalPercentTotal = payload.savingsGoalCategories.reduce((sum, category) => sum + asNumber(category.percent), 0);
   const percentTotal = categoryPercentTotal + savingsGoalPercentTotal;
 
-  if (percentTotal !== 100) {
-    return 'Percentage categories and savings-goal percentages must total exactly 100%.';
+  if (percentTotal > 100) {
+    return 'Total percentage cannot exceed 100%.';
   }
 
   if (payload.percentageCategories.some((category) => !category.name.trim())) {
@@ -441,6 +517,8 @@ async function saveSplitRatios(event) {
     return;
   }
 
+  syncSavingsGoalAllocationsWithGoals();
+
   const payload = collectPayload();
   const validationMessage = validatePayload(payload);
 
@@ -497,6 +575,7 @@ async function saveSplitRatios(event) {
 
 function addPercentCategory() {
   percentageCategories.push({ name: 'New Category', percent: 0 });
+  syncUnspecifiedPercentageCategory();
   renderPercentCategories();
   renderPercentTotal();
 }
@@ -647,6 +726,7 @@ async function loadAvailableSavingsGoals(userId) {
     .filter((goalName) => Boolean(goalName));
 
   availableSavingsGoals = Array.from(new Set(names));
+  syncSavingsGoalAllocationsWithGoals();
 }
 
 onAuthStateChanged(auth, async (user) => {
@@ -663,6 +743,7 @@ onAuthStateChanged(auth, async (user) => {
     savingsGoalCategories = normalizeSavingsGoalCategories(splitRatios.savingsGoalCategories);
     billCategories = normalizeBillCategories(splitRatios.billCategories);
     await loadAvailableSavingsGoals(user.uid);
+    syncUnspecifiedPercentageCategory();
     lastSavedPayload = collectPayload();
     renderPercentCategories();
     renderSavingsGoalCategories();

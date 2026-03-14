@@ -63,9 +63,37 @@
         <button type="button" class="btn-secondary" id="reset-password-btn">Send Password Reset Email</button>
       </div>
     </section>
+
+    <section class="form-section">
+      <h2>Visual Preferences</h2>
+      <p class="account-section-description">Choose your theme preset and animation speed, then save.</p>
+
+      <p class="page-message" id="visuals-message" aria-live="polite"></p>
+
+      <div class="visuals-presets-grid" id="visuals-presets-grid"></div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="visuals-animation-mode">Animation Speed</label>
+          <select id="visuals-animation-mode">
+            <option value="normal">Normal</option>
+            <option value="slow">Slow</option>
+            <option value="fast">Fast</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="account-form-actions">
+        <button type="button" class="btn-add" id="visuals-save-btn">Save Visual Preferences</button>
+      </div>
+    </section>
   </div>
 
   <script src="assets/js/cache-registration.js"></script>
+  <script type="module" src="assets/js/theme.js"></script>
+  <script>if (new URLSearchParams(location.search).get('embedded') === '1') document.body.classList.add('embedded');</script>
   <script type="module" src="assets/js/account.js"></script>
+  <script type="module" src="assets/js/visuals.js"></script>
 </body>
 </html>
