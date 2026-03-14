@@ -11,8 +11,11 @@
 <body>
   <div class="container">
     <header>
-      <h1>MoneyFirst</h1>
-      <p class="subtitle">Your Personal Budget Tracker</p>
+      <div class="header-title">
+        <h1>MoneyFirst</h1>
+        <p class="subtitle">Your Personal Budget Tracker</p>
+      </div>
+      <button class="btn-settings header-settings" id="open-settings">⚙</button>
     </header>
 
     <!-- Tabs + Add Button -->
@@ -23,22 +26,23 @@
         <button class="tab" data-tab="breakdown" role="tab" aria-selected="false">Breakdown</button>
       </nav>
       <button class="btn-add" id="open-add-modal">+ Add Transaction</button>
-      <button class="btn-secondary btn-settings" id="open-settings">⚙ Settings</button>
     </div>
 
     <!-- Dashboard Tab -->
     <div class="tab-panel" data-panel="dashboard">
       <!-- Summary Cards -->
       <section class="summary">
-        <div class="card balance">
-          <span class="card-label">Balance</span>
-          <span class="card-amount" id="balance">$0.00</span>
-        </div>
-        <div class="card breakdown">
-          <span class="card-label">Category Breakdown</span>
-          <ul class="breakdown-list" id="breakdown-list">
-            <li class="empty-state">No expenses yet. Add a transaction to see breakdown.</li>
-          </ul>
+        <div class="summary-left">
+          <div class="card balance">
+            <span class="card-label">Balance</span>
+            <span class="card-amount" id="balance">$0.00</span>
+          </div>
+          <div class="card breakdown">
+            <span class="card-label">Category Breakdown</span>
+            <ul class="breakdown-list" id="breakdown-list">
+              <li class="empty-state">No expenses yet. Add a transaction to see breakdown.</li>
+            </ul>
+          </div>
         </div>
         <div class="card savings-goals">
           <div class="card-header">
