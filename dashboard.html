@@ -17,11 +17,20 @@
       </div>
       <div class="header-tools">
         <p class="header-greeting" id="header-greeting">Welcome back</p>
-        <button class="btn-settings-trigger" id="open-settings" type="button" aria-label="Open settings" aria-haspopup="menu" aria-expanded="false">⚙</button>
+        <button class="btn-settings-trigger" id="open-settings" type="button" aria-label="Open settings" aria-haspopup="menu" aria-expanded="false">
+          <img id="settings-avatar-image" class="settings-avatar-image" alt="Profile photo" hidden>
+          <span id="settings-avatar-fallback" class="settings-avatar-fallback" aria-hidden="true">👤</span>
+        </button>
         <div class="settings-popover" id="settings-popover" role="menu" aria-labelledby="open-settings" hidden>
           <div class="settings-user-card settings-user-card-link" role="button" tabindex="0" aria-label="Go to account settings" data-subpage="account.html" data-subpage-label="Account">
-            <p class="sidebar-user-name" id="sidebar-user-name">User</p>
-            <p class="sidebar-user-email" id="sidebar-user-email">Not signed in</p>
+            <div class="settings-user-avatar-wrap">
+              <img id="sidebar-avatar-image" class="sidebar-avatar-image" alt="Profile photo" hidden>
+              <span id="sidebar-avatar-fallback" class="sidebar-avatar-fallback" aria-hidden="true">👤</span>
+            </div>
+            <div>
+              <p class="sidebar-user-name" id="sidebar-user-name">User</p>
+              <p class="sidebar-user-email" id="sidebar-user-email">Not signed in</p>
+            </div>
           </div>
           <nav class="settings-menu-list">
             <button class="settings-menu-item" type="button" data-subpage="faq.html" data-subpage-label="FAQ">FAQ</button>

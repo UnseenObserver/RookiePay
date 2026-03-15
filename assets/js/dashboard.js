@@ -43,7 +43,11 @@ const elements = {
   goalsHeaderMessage: document.getElementById('goals-header-message'),
   headerTools: document.querySelector('.header-tools'),
   openSettingsButton: document.getElementById('open-settings'),
-  settingsPopover: document.getElementById('settings-popover')
+  settingsPopover: document.getElementById('settings-popover'),
+  settingsAvatarImage: document.getElementById('settings-avatar-image'),
+  settingsAvatarFallback: document.getElementById('settings-avatar-fallback'),
+  sidebarAvatarImage: document.getElementById('sidebar-avatar-image'),
+  sidebarAvatarFallback: document.getElementById('sidebar-avatar-fallback')
 };
 
 let transactions = [];
@@ -1153,6 +1157,89 @@ function getHeaderGreeting(firstName) {
   return messages[messageIndex];
 }
 
+function getDefaultProfilePhotoUrl() {
+  return 'assets/images/default-profile.svg';
+}
+
+function getLocalProfilePhotoKey(userId) {
+  return `mf_profile_photo_${userId}`;
+}
+
+function getLocalProfilePhoto(userId) {
+  if (!userId) {
+    return '';
+  }
+
+  return localStorage.getItem(getLocalProfilePhotoKey(userId)) || '';
+}
+
+function updateAvatarUI(photoURL) {
+  const imageUrl = typeof photoURL === 'string' && photoURL.trim() ? photoURL.trim() : '';
+
+  [
+    {
+      image: elements.settingsAvatarImage,
+      fallback: elements.settingsAvatarFallback,
+      fallbackText: '👤'
+    },
+    {
+      image: elements.sidebarAvatarImage,
+      fallback: elements.sidebarAvatarFallback,
+      fallbackText: '👤'
+    }
+  ].forEach((entry) => {
+    if (!entry.image || !entry.fallback) {
+      return;
+    }
+
+    if (imageUrl) {
+      entry.image.src = imageUrl;
+      entry.image.hidden = false;
+      entry.fallback.hidden = true;
+      return;
+    }
+
+    entry.image.src = getDefaultProfilePhotoUrl();
+    entry.image.hidden = true;
+    entry.fallback.hidden = false;
+    entry.fallback.textContent = entry.fallbackText;
+  });
+}
+
+async function resolveUserProfile(user) {
+  const profile = {
+    firstName: (user.displayName || '').trim().split(' ')[0],
+    photoURL: user.photoURL || ''
+  };
+
+  try {
+    const userProfile = await getDoc(doc(db, 'users', user.uid));
+
+    if (userProfile.exists()) {
+      const data = userProfile.data() || {};
+      const firstName = String(data.firstName || '').trim();
+      const photoURL = String(data.photoURL || '').trim();
+
+      if (firstName) {
+        profile.firstName = firstName;
+      }
+
+      if (photoURL) {
+        profile.photoURL = photoURL;
+      }
+    }
+  } catch (error) {
+    console.warn('Could not load user profile:', error);
+  }
+
+  if (!profile.firstName) {
+    const emailFirstPart = (user.email || '').split('@')[0];
+    profile.firstName = emailFirstPart || 'User';
+  }
+
+  return profile;
+}
+
 async function resolveUserFirstName(user) {
   const displayNameFirstName = (user.displayName || '').trim().split(' ')[0];
 
@@ -1202,7 +1289,8 @@ async function handleAuthStateChanged(user) {
 
   currentUser = user;
 
-  const firstName = await resolveUserFirstName(user);
+  const profile = await resolveUserProfile(user);
+  const firstName = profile.firstName;
 
   if (elements.headerGreeting) {
     elements.headerGreeting.textContent = getHeaderGreeting(firstName);
@@ -1216,6 +1304,9 @@ async function handleAuthStateChanged(user) {
     elements.sidebarUserEmail.textContent = user.email || 'Signed in';
   }
 
+  const localPhotoDataUrl = getLocalProfilePhoto(user.uid);
+  updateAvatarUI(localPhotoDataUrl || profile.photoURL);
+
   if (elements.logoutButton) {
     elements.logoutButton.hidden = false;
   }
@@ -1225,6 +1316,39 @@ async function handleAuthStateChanged(user) {
   await migrateLegacyGoalsToFirestore(user.uid);
   subscribeToGoals(user.uid);
   subscribeToTransactions(user.uid);
+}
+
+function setupProfilePhotoSyncListeners() {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== 'mf_profile_updated' || !event.newValue) {
+      return;
+    }
+
+    try {
+      const data = JSON.parse(event.newValue);
+      if (currentUser && data.userId && data.userId !== currentUser.uid) {
+        return;
+      }
+
+      updateAvatarUI(data.localPhotoDataUrl || data.photoURL || '');
+    } catch {
+      // no-op
+    }
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin) {
+      return;
+    }
+
+    if (event.data?.type === 'mf-profile-updated') {
+      if (currentUser && event.data.userId && event.data.userId !== currentUser.uid) {
+        return;
+      }
+
+      updateAvatarUI(event.data.localPhotoDataUrl || event.data.photoURL || '');
+    }
+  });
 }
 
 function setupListeners() {
@@ -1337,6 +1461,7 @@ function init() {
   setActiveTab('dashboard', { skipAnimation: true });
   renderGoals();
   setupListeners();
+  setupProfilePhotoSyncListeners();
   onAuthStateChanged(auth, handleAuthStateChanged);
 }
 

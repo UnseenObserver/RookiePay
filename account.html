@@ -25,14 +25,24 @@
     <section class="form-section profile-section">
       <h2>Your Profile</h2>
       <form id="account-form">
-        <div class="form-row account-form-grid">
-          <div class="form-group">
-            <label for="first-name">First Name</label>
-            <input type="text" id="first-name" placeholder="First name" autocomplete="given-name" />
+        <div class="profile-top-layout">
+          <div class="profile-photo-trigger-group">
+            <button type="button" class="profile-photo-trigger" id="open-photo-modal" aria-label="Change profile picture">
+              <img class="profile-photo-preview" id="profile-photo-preview" alt="Current profile photo" src="assets/images/default-profile.svg" />
+              <span class="profile-photo-trigger-label">Change Photo</span>
+            </button>
+            <p class="profile-photo-device-note">Photo is stored on this device only for this account.</p>
           </div>
-          <div class="form-group">
-            <label for="last-name">Last Name</label>
-            <input type="text" id="last-name" placeholder="Last name" autocomplete="family-name" />
+
+          <div class="profile-name-fields">
+            <div class="form-group">
+              <label for="first-name">First Name</label>
+              <input type="text" id="first-name" placeholder="First name" autocomplete="given-name" />
+            </div>
+            <div class="form-group">
+              <label for="last-name">Last Name</label>
+              <input type="text" id="last-name" placeholder="Last name" autocomplete="family-name" />
+            </div>
           </div>
         </div>
 
@@ -87,6 +97,50 @@
         <button type="button" class="btn-add" id="visuals-save-btn">Save Visual Preferences</button>
       </div>
     </section>
+
+    <div class="modal" id="profile-photo-modal" role="dialog" aria-modal="true" aria-labelledby="profile-photo-modal-title" hidden>
+      <div class="modal-backdrop" data-photo-close="true"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="profile-photo-modal-title">Profile Picture</h2>
+          <button class="modal-close" type="button" aria-label="Close" data-photo-close="true">✕</button>
+        </div>
+        <div class="profile-photo-modal-body">
+          <p class="profile-photo-meta" id="profile-photo-modal-copy">Upload an image to start cropping.</p>
+          <div class="form-group">
+            <label for="profile-photo-input">Upload image</label>
+            <input type="file" id="profile-photo-input" accept="image/png, image/jpeg, image/webp" />
+          </div>
+
+          <div class="profile-photo-cropper" id="profile-photo-cropper" hidden>
+            <canvas id="profile-photo-canvas" width="360" height="360" aria-label="Profile photo crop preview"></canvas>
+          </div>
+
+          <div class="profile-photo-controls" id="profile-photo-controls" hidden>
+            <div>
+              <p class="profile-photo-slider-label">Zoom</p>
+              <input type="range" id="profile-photo-zoom" min="1" max="3" step="0.01" value="1" />
+            </div>
+            <div>
+              <p class="profile-photo-slider-label">Horizontal position</p>
+              <input type="range" id="profile-photo-offset-x" min="-150" max="150" step="1" value="0" />
+            </div>
+            <div>
+              <p class="profile-photo-slider-label">Vertical position</p>
+              <input type="range" id="profile-photo-offset-y" min="-150" max="150" step="1" value="0" />
+            </div>
+            <div class="profile-photo-actions">
+              <button type="button" class="btn-secondary" id="profile-photo-reset-btn">Reset Crop</button>
+              <button type="button" class="btn-add" id="profile-photo-apply-btn">Use Cropped Photo</button>
+            </div>
+          </div>
+
+          <div class="modal-actions profile-photo-modal-actions">
+            <button type="button" class="btn-secondary" data-photo-close="true">Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="assets/js/cache-registration.js"></script>
