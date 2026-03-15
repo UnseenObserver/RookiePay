@@ -11,8 +11,8 @@ import {
 
 const DEFAULT_SPLIT_RATIOS = {
   percentageCategories: [
-    { name: 'Entertainment', percent: 40 },
-    { name: 'Food', percent: 60 }
+    { name: 'Entertainment', percent: 50 },
+    { name: 'Food', percent: 50 }
   ],
   savingsGoalCategories: [],
   billCategories: [
