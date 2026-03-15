@@ -10,6 +10,7 @@ import {
   getDocs,
   onSnapshot,
   setDoc,
+  updateDoc,
   serverTimestamp,
   writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js';
@@ -97,6 +98,11 @@ const DEFAULT_SPLIT_RATIOS = {
 let splitRatios = DEFAULT_SPLIT_RATIOS;
 let currentUserProfile = null;
 let parentPortalChildren = [];
+let parentRecentActivityScrollTimeoutId = null;
+let parentPortalFamilyWatchUnsubs = [];
+let parentPortalChildWatchUnsubs = [];
+let parentPortalReloadTimeoutId = null;
+let isParentPortalReloading = false;
 
 const PRESET_AVATAR_SOURCES = {
   astronaut: '../assets/images/avatars/avatar-1.svg',
@@ -106,6 +112,60 @@ const PRESET_AVATAR_SOURCES = {
   'orange-playful': '../assets/images/avatars/avatar-5.svg',
   superhero: '../assets/images/avatars/avatar-6.svg'
 };
+
+const PARENT_PORTAL_COLOR_OPTIONS = [
+  { label: 'Coral', hue: 14 },
+  { label: 'Amber', hue: 38 },
+  { label: 'Lime', hue: 92 },
+  { label: 'Teal', hue: 172 },
+  { label: 'Blue', hue: 214 },
+  { label: 'Violet', hue: 268 },
+  { label: 'Magenta', hue: 314 },
+  { label: 'Rose', hue: 342 }
+];
+
+const PARENT_PORTAL_COLOR_HUES = PARENT_PORTAL_COLOR_OPTIONS.map((option) => option.hue);
+
+function getDefaultChildColorHue(uid = '') {
+  const normalizedUid = String(uid || '').trim();
+
+  if (!normalizedUid) {
+    return PARENT_PORTAL_COLOR_HUES[0];
+  }
+
+  let hash = 0;
+  for (let index = 0; index < normalizedUid.length; index += 1) {
+    hash = ((hash * 31) + normalizedUid.charCodeAt(index)) >>> 0;
+  }
+
+  return PARENT_PORTAL_COLOR_HUES[hash % PARENT_PORTAL_COLOR_HUES.length];
+}
+
+function normalizeChildColorHue(value, fallbackUid = '') {
+  const parsed = Number(value);
+
+  if (Number.isInteger(parsed) && PARENT_PORTAL_COLOR_HUES.includes(parsed)) {
+    return parsed;
+  }
+
+  return getDefaultChildColorHue(fallbackUid);
+}
+
+function getChildColorLabel(hue, fallbackUid = '') {
+  const normalizedHue = normalizeChildColorHue(hue, fallbackUid);
+  const matchingOption = PARENT_PORTAL_COLOR_OPTIONS.find((option) => option.hue === normalizedHue);
+  return matchingOption?.label || 'Color';
+}
+
+function getNextChildColorHue(currentHue, fallbackUid = '') {
+  const normalizedCurrentHue = normalizeChildColorHue(currentHue, fallbackUid);
+  const currentIndex = PARENT_PORTAL_COLOR_HUES.indexOf(normalizedCurrentHue);
+  const nextIndex = currentIndex === -1
+    ? 0
+    : (currentIndex + 1) % PARENT_PORTAL_COLOR_HUES.length;
+
+  return PARENT_PORTAL_COLOR_HUES[nextIndex];
+}
 
 function asNumber(value) {
   const parsed = Number(value);
@@ -1501,21 +1561,24 @@ async function loadParentPortalChildren(profile) {
   parentPortalChildren = [];
 
   if (profile?.role !== 'parent') {
+    clearParentPortalWatchers();
     renderParentPortal();
     return;
   }
 
   try {
     const currentParentUid = currentUser?.uid;
+    const sourceFamilyUid = String(profile?.primaryFamilyId || currentParentUid || '').trim();
 
-    if (!currentParentUid) {
+    if (!currentParentUid || !sourceFamilyUid) {
+      clearParentPortalWatchers();
       renderParentPortal();
       return;
     }
 
-    const ownMembers = await listFamilyMembers(currentParentUid);
+    const ownMembers = await listFamilyMembers(sourceFamilyUid);
     const linkedParentUids = ownMembers
-      .filter((member) => member.role === 'parent' && member.status === 'active' && member.uid !== currentParentUid)
+      .filter((member) => member.role === 'parent' && member.status === 'active' && member.uid !== currentParentUid && member.uid !== sourceFamilyUid)
       .map((member) => member.uid);
 
     const linkedParentMembersSettled = await Promise.allSettled(linkedParentUids.map((uid) => listFamilyMembers(uid)));
@@ -1523,12 +1586,15 @@ async function loadParentPortalChildren(profile) {
       .filter((result) => result.status === 'fulfilled')
       .map((result) => result.value);
 
+    setupParentPortalFamilyWatchers(sourceFamilyUid, linkedParentUids);
+
     const childMembers = [
       ...ownMembers,
       ...linkedParentMembers.flat()
     ].filter((member) => member.role === 'child' && member.status === 'active');
 
     const uniqueChildMembers = Array.from(new Map(childMembers.map((member) => [member.uid, member])).values());
+    setupParentPortalChildWatchers(uniqueChildMembers.map((member) => member.uid));
 
     const childCardsSettled = await Promise.allSettled(uniqueChildMembers.map(async (member) => {
       const permissions = member.permissions || {};
@@ -1537,6 +1603,16 @@ async function loadParentPortalChildren(profile) {
 
       const userSnapshot = await getDoc(doc(db, 'users', member.uid));
       const userData = userSnapshot.exists() ? userSnapshot.data() : {};
+      const childColorHue = normalizeChildColorHue(userData.parentPortalColorHue, member.uid);
+
+      if (!Object.prototype.hasOwnProperty.call(userData, 'parentPortalColorHue')) {
+        updateDoc(doc(db, 'users', member.uid), {
+          parentPortalColorHue: childColorHue,
+          parentPortalColorUpdatedAt: serverTimestamp()
+        }).catch((error) => {
+          console.warn('Could not persist child portal color:', error);
+        });
+      }
 
       const [transactionsSnapshot, goalsSnapshot] = await Promise.all([
         canReadTransactions ? getDocs(collection(db, 'users', member.uid, 'transactions')) : Promise.resolve(null),
@@ -1574,6 +1650,7 @@ async function loadParentPortalChildren(profile) {
         email: member.email || userData.email || 'No email',
         photoURL: String(userData.photoURL || '').trim(),
         photoAvatarName: String(userData.photoAvatarName || '').trim(),
+        colorHue: childColorHue,
         permissions,
         balance: income - expense,
         monthlySpending: getCurrentMonthExpenseTotal(transactionsList),
@@ -1605,6 +1682,185 @@ function getFilteredParentPortalChildren() {
   return parentPortalChildren.filter((child) => child.uid === selectedUid);
 }
 
+function clearParentPortalWatchers() {
+  parentPortalFamilyWatchUnsubs.forEach((unsubscribe) => unsubscribe());
+  parentPortalChildWatchUnsubs.forEach((unsubscribe) => unsubscribe());
+  parentPortalFamilyWatchUnsubs = [];
+  parentPortalChildWatchUnsubs = [];
+
+  if (parentPortalReloadTimeoutId) {
+    clearTimeout(parentPortalReloadTimeoutId);
+    parentPortalReloadTimeoutId = null;
+  }
+}
+
+function watchWithInitialSkip(ref, onChange) {
+  let isFirstEvent = true;
+
+  return onSnapshot(
+    ref,
+    () => {
+      if (isFirstEvent) {
+        isFirstEvent = false;
+        return;
+      }
+
+      onChange();
+    },
+    (error) => {
+      console.warn('Parent portal realtime watch failed:', error);
+    }
+  );
+}
+
+function scheduleParentPortalReload() {
+  if (!currentUserProfile || currentUserProfile.role !== 'parent') {
+    return;
+  }
+
+  if (parentPortalReloadTimeoutId) {
+    clearTimeout(parentPortalReloadTimeoutId);
+  }
+
+  parentPortalReloadTimeoutId = setTimeout(async () => {
+    parentPortalReloadTimeoutId = null;
+
+    if (!currentUserProfile || currentUserProfile.role !== 'parent' || isParentPortalReloading) {
+      return;
+    }
+
+    isParentPortalReloading = true;
+
+    try {
+      await loadParentPortalChildren(currentUserProfile);
+    } finally {
+      isParentPortalReloading = false;
+    }
+  }, 260);
+}
+
+function setupParentPortalFamilyWatchers(sourceFamilyUid, linkedParentUids = []) {
+  parentPortalFamilyWatchUnsubs.forEach((unsubscribe) => unsubscribe());
+  parentPortalFamilyWatchUnsubs = [];
+
+  if (!sourceFamilyUid) {
+    return;
+  }
+
+  parentPortalFamilyWatchUnsubs.push(
+    watchWithInitialSkip(collection(db, 'users', sourceFamilyUid, 'familyMembers'), scheduleParentPortalReload)
+  );
+
+  linkedParentUids.forEach((uid) => {
+    if (!uid) {
+      return;
+    }
+
+    parentPortalFamilyWatchUnsubs.push(
+      watchWithInitialSkip(collection(db, 'users', uid, 'familyMembers'), scheduleParentPortalReload)
+    );
+  });
+}
+
+function setupParentPortalChildWatchers(childUids = []) {
+  parentPortalChildWatchUnsubs.forEach((unsubscribe) => unsubscribe());
+  parentPortalChildWatchUnsubs = [];
+
+  childUids.forEach((childUid) => {
+    if (!childUid) {
+      return;
+    }
+
+    parentPortalChildWatchUnsubs.push(
+      watchWithInitialSkip(doc(db, 'users', childUid), scheduleParentPortalReload),
+      watchWithInitialSkip(collection(db, 'users', childUid, 'transactions'), scheduleParentPortalReload),
+      watchWithInitialSkip(collection(db, 'users', childUid, 'savingsGoals'), scheduleParentPortalReload)
+    );
+  });
+}
+
+function syncParentPortalCardHeights() {
+  if (!elements.parentChildCards || !elements.parentRecentActivity) {
+    return;
+  }
+
+  const childCardsCard = elements.parentChildCards.closest('.card');
+  const recentActivityCard = elements.parentRecentActivity.closest('.card');
+
+  if (!childCardsCard || !recentActivityCard) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    if (window.matchMedia('(max-width: 640px)').matches) {
+      childCardsCard.style.height = '';
+      recentActivityCard.style.height = '';
+      recentActivityCard.classList.remove('show-top-fade', 'show-bottom-fade', 'is-scrolling');
+      return;
+    }
+
+    childCardsCard.style.height = '';
+    recentActivityCard.style.height = '';
+
+    const targetHeight = Math.round(childCardsCard.getBoundingClientRect().height);
+    const syncedHeight = targetHeight > 0 ? `${targetHeight}px` : '';
+    childCardsCard.style.height = syncedHeight;
+    recentActivityCard.style.height = syncedHeight;
+    updateParentRecentActivityFadeState();
+  });
+}
+
+function updateParentRecentActivityFadeState() {
+  if (!elements.parentRecentActivity) {
+    return;
+  }
+
+  const recentActivityCard = elements.parentRecentActivity.closest('.card');
+  if (!recentActivityCard) {
+    return;
+  }
+
+  const list = elements.parentRecentActivity;
+  const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
+  const canScroll = maxScroll > 1;
+
+  if (!canScroll) {
+    recentActivityCard.classList.remove('show-top-fade', 'show-bottom-fade', 'is-scrolling');
+    return;
+  }
+
+  const epsilon = 1;
+  const showTopFade = list.scrollTop > epsilon;
+  const showBottomFade = list.scrollTop < (maxScroll - epsilon);
+
+  recentActivityCard.classList.toggle('show-top-fade', showTopFade);
+  recentActivityCard.classList.toggle('show-bottom-fade', showBottomFade);
+}
+
+function handleParentRecentActivityScroll() {
+  if (!elements.parentRecentActivity) {
+    return;
+  }
+
+  const recentActivityCard = elements.parentRecentActivity.closest('.card');
+  if (!recentActivityCard) {
+    return;
+  }
+
+  recentActivityCard.classList.add('is-scrolling');
+  updateParentRecentActivityFadeState();
+
+  if (parentRecentActivityScrollTimeoutId) {
+    clearTimeout(parentRecentActivityScrollTimeoutId);
+  }
+
+  parentRecentActivityScrollTimeoutId = setTimeout(() => {
+    recentActivityCard.classList.remove('is-scrolling');
+    parentRecentActivityScrollTimeoutId = null;
+    updateParentRecentActivityFadeState();
+  }, 120);
+}
+
 function renderParentPortal() {
   if (!elements.parentPortalTab || !elements.parentPortalPanel) {
     return;
@@ -1632,15 +1888,17 @@ function renderParentPortal() {
     elements.parentPortalCopy.textContent = 'No linked children yet. Add them from Account settings using your invite code.';
     elements.parentChildCards.innerHTML = '<li class="empty-state">No linked children yet.</li>';
     elements.parentRecentActivity.innerHTML = '<li class="empty-state">No child activity to display yet.</li>';
+    syncParentPortalCardHeights();
+    updateParentRecentActivityFadeState();
     return;
   }
 
   elements.parentPortalCopy.textContent = 'Monitor linked child accounts, recent activity, and savings progress.';
 
   elements.parentChildCards.innerHTML = filteredChildren.map((child) => `
-    <li class="family-member-card compact-family-member-card">
+    <li class="family-member-card compact-family-member-card parent-child-color-card" style="--child-color-hue:${child.colorHue};">
       <div class="family-member-header">
-        <div class="parent-child-avatar-wrap" aria-hidden="true">
+        <div class="parent-child-avatar-wrap parent-child-avatar-wrap-colored" aria-hidden="true">
               ${resolveProfilePhotoSource(child.photoURL, child.photoAvatarName)
             ? `<img class="parent-child-avatar" src="${escapeHtml(resolveProfilePhotoSource(child.photoURL, child.photoAvatarName))}" alt="" />`
     : '<span class="parent-child-avatar-fallback">👤</span>'}
@@ -1655,8 +1913,18 @@ function renderParentPortal() {
         <span>Monthly Spending <strong>${formatCurrency(child.monthlySpending)}</strong></span>
         <span>Goals <strong>${child.goalCount}</strong></span>
       </div>
-      <div class="profile-photo-actions">
+      <div class="parent-child-actions">
         <button type="button" class="btn-secondary" data-parent-action="add-child-goal" data-child-uid="${escapeHtml(child.uid)}" data-child-name="${escapeHtml(child.displayName)}">Add Savings Goal</button>
+        <button
+          type="button"
+          class="parent-child-color-button"
+          data-parent-action="change-child-color"
+          data-child-uid="${escapeHtml(child.uid)}"
+          data-child-name="${escapeHtml(child.displayName)}"
+          title="Change ${escapeHtml(child.displayName)} color (${escapeHtml(getChildColorLabel(child.colorHue, child.uid))})"
+          aria-label="Change ${escapeHtml(child.displayName)} color (${escapeHtml(getChildColorLabel(child.colorHue, child.uid))})"
+          style="--child-color-hue:${child.colorHue};"
+        ></button>
       </div>
     </li>
   `).join('');
@@ -1664,6 +1932,7 @@ function renderParentPortal() {
   const recentActivity = filteredChildren
     .flatMap((child) => child.transactions.map((transaction) => ({
       childName: child.displayName,
+      childColorHue: child.colorHue,
       ...transaction
     })))
     .sort((left, right) => (right.createdAtDate?.getTime() || 0) - (left.createdAtDate?.getTime() || 0))
@@ -1672,24 +1941,65 @@ function renderParentPortal() {
   elements.parentRecentActivity.innerHTML = recentActivity.length === 0
     ? '<li class="empty-state">No child activity to display yet.</li>'
     : recentActivity.map((transaction) => `
-      <li>
-        <strong>${escapeHtml(transaction.childName)}</strong>: ${escapeHtml(transaction.description)}
+      <li class="parent-recent-activity-item" style="--child-color-hue:${transaction.childColorHue};">
+        <span class="parent-recent-activity-child" style="--child-color-hue:${transaction.childColorHue};">
+          <span class="parent-recent-activity-dot" aria-hidden="true"></span>
+          <strong>${escapeHtml(transaction.childName)}</strong>
+        </span>: ${escapeHtml(transaction.description)}
         <span class="breakdown-amount">${transaction.type === 'expense' ? '-' : '+'}${formatCurrency(transaction.amount)}</span>
       </li>
     `).join('');
+
+  syncParentPortalCardHeights();
+  updateParentRecentActivityFadeState();
 }
 
 async function handleParentPortalAction(event) {
-  const actionButton = event.target.closest('[data-parent-action="add-child-goal"]');
+  const actionButton = event.target.closest('[data-parent-action]');
 
   if (!actionButton || !currentUser || currentUserProfile?.role !== 'parent') {
     return;
   }
 
+  const action = actionButton.dataset.parentAction;
   const childUid = actionButton.dataset.childUid;
   const childName = actionButton.dataset.childName || 'this child';
 
   if (!childUid) {
+    return;
+  }
+
+  if (action === 'change-child-color') {
+    const childEntry = parentPortalChildren.find((entry) => entry.uid === childUid);
+
+    if (!childEntry) {
+      return;
+    }
+
+    const nextHue = getNextChildColorHue(childEntry.colorHue, childUid);
+
+    try {
+      await updateDoc(doc(db, 'users', childUid), {
+        parentPortalColorHue: nextHue,
+        parentPortalColorUpdatedAt: serverTimestamp()
+      });
+
+      childEntry.colorHue = nextHue;
+      renderParentPortal();
+      if (elements.parentPortalCopy) {
+        elements.parentPortalCopy.textContent = `${childName} color set to ${getChildColorLabel(nextHue, childUid)}.`;
+      }
+    } catch (error) {
+      console.error('Failed to update child color:', error);
+      if (elements.parentPortalCopy) {
+        elements.parentPortalCopy.textContent = 'Could not update child color right now. Check Firestore rules deployment.';
+      }
+    }
+
+    return;
+  }
+
+  if (action !== 'add-child-goal') {
     return;
   }
 
@@ -1856,6 +2166,7 @@ async function handleAuthStateChanged(user) {
 
     goals = [];
     parentPortalChildren = [];
+    clearParentPortalWatchers();
     currentUserProfile = null;
     setParentPortalVisibility(false);
     renderParentPortal();
@@ -2010,6 +2321,10 @@ function setupListeners() {
     elements.parentChildCards.addEventListener('click', handleParentPortalAction);
   }
 
+  if (elements.parentRecentActivity) {
+    elements.parentRecentActivity.addEventListener('scroll', handleParentRecentActivityScroll, { passive: true });
+  }
+
   elements.form.addEventListener('submit', handleTransactionSubmit);
   elements.list.addEventListener('click', async (event) => {
     const button = event.target.closest('.btn-delete[data-id]');
@@ -2092,6 +2407,8 @@ function setupListeners() {
   });
 
   window.addEventListener('resize', repositionAnchoredPopups);
+  window.addEventListener('resize', syncParentPortalCardHeights);
+  window.addEventListener('resize', updateParentRecentActivityFadeState);
   window.addEventListener('scroll', repositionAnchoredPopups, true);
 }
 

@@ -511,7 +511,8 @@ async function handleJoinParentByCode() {
   }
 
   const enteredCode = elements.joinParentCodeInput?.value || '';
-  const linkedParent = await findFamilyByInviteCode(enteredCode);
+  const normalizedInviteCode = normalizeInviteCode(enteredCode);
+  const linkedParent = await findFamilyByInviteCode(normalizedInviteCode);
 
   if (!linkedParent || linkedParent.role !== 'parent') {
     setFamilyMessage('That parent invite code is invalid.', 'error');
@@ -532,6 +533,7 @@ async function handleJoinParentByCode() {
         uid: linkedParent.id,
         role: 'parent',
         status: 'active',
+        joinedWithInviteCode: normalizedInviteCode,
         displayName: theirDisplayName,
         email: linkedParent.email || '',
         joinedAt: serverTimestamp(),
@@ -541,6 +543,7 @@ async function handleJoinParentByCode() {
         uid: currentUser.uid,
         role: 'parent',
         status: 'active',
+        joinedWithInviteCode: normalizedInviteCode,
         displayName: myDisplayName,
         email: currentUserProfile?.email || currentUser.email || '',
         joinedAt: serverTimestamp(),
@@ -600,6 +603,8 @@ async function handleFamilyChildrenInteraction(event) {
       await updateDoc(doc(db, 'users', memberId), {
         role: 'solo',
         primaryFamilyId: null,
+        inviteCode: '',
+        inviteStatus: '',
         updatedAt: serverTimestamp()
       });
 
@@ -640,6 +645,8 @@ async function switchRoleTo(targetRole) {
 
     if (targetRole === 'solo') {
       updatePayload.primaryFamilyId = null;
+      updatePayload.inviteCode = '';
+      updatePayload.inviteStatus = '';
     }
 
     if (targetRole === 'parent') {
@@ -684,11 +691,14 @@ async function switchRoleTo(targetRole) {
       }
 
       updatePayload.primaryFamilyId = linkedParent.id;
+      updatePayload.inviteCode = '';
+      updatePayload.inviteStatus = '';
 
       await setDoc(doc(db, 'users', linkedParent.id, 'familyMembers', currentUser.uid), {
         uid: currentUser.uid,
         role: 'child',
         status: 'active',
+        joinedWithInviteCode: inviteCode,
         displayName: buildDisplayName(currentUserProfile.firstName, currentUserProfile.lastName) || currentUserProfile.username || currentUserProfile.email || 'Child Account',
         email: currentUserProfile.email || currentUser.email || '',
         permissions: getDefaultMemberPermissions('child'),
@@ -1136,6 +1146,8 @@ async function cleanupFamilyLinksBeforeDelete(user, profile) {
     const childUpdateWrites = childMembers.map((member) => updateDoc(doc(db, 'users', member.uid), {
       role: 'solo',
       primaryFamilyId: null,
+      inviteCode: '',
+      inviteStatus: '',
       updatedAt: serverTimestamp()
     }));
 
@@ -1307,7 +1319,6 @@ async function handleSave(event) {
   }
 
   setFormDisabled(true);
-  setPageMessage('Saving…');
 
   try {
     const displayName = `${firstName} ${lastName}`.trim();
@@ -1379,7 +1390,7 @@ async function handleSave(event) {
     }
 
     setPageMessage('');
-    setAccountMessage('Account updated successfully.', 'success');
+    setAccountMessage('');
   } catch (error) {
     console.error('Failed to save account changes:', error);
 

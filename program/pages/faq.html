@@ -43,7 +43,8 @@
           <span class="faq-icon" aria-hidden="true">+</span>
         </button>
         <div class="faq-answer" hidden>
-          <p>Yes. MoneyFirst uses Firebase (by Google) for authentication and data storage. Your data is protected by industry-standard encryption in transit and at rest. Only you can access your account data — we never share or sell your information.</p>
+          <p>Yes. MoneyFirst uses Firebase (by Google) for authentication and data storage. Data is encrypted in transit and at rest, and Firestore rules restrict access to signed-in users, role-based family links, and invite-code verified family joins.</p>
+          <p>You should still protect your account by using a strong password and keeping your family invite code private.</p>
         </div>
       </div>
 
@@ -169,7 +170,8 @@
           <span class="faq-icon" aria-hidden="true">+</span>
         </button>
         <div class="faq-answer" hidden>
-          <p>Yes. You can clear transaction history from the Dashboard at any time. If you want your full account removed, contact the project maintainers through GitHub and include the email tied to your account so we can verify and process deletion.</p>
+          <p>Yes. Open <strong>Account</strong>, go to the <strong>Danger Zone</strong>, then choose <strong>Delete Account</strong>. You will be asked to re-enter your password before permanent deletion.</p>
+          <p>This removes your user profile and app data (including transactions, goals, split ratios, and family links) from the app database.</p>
         </div>
       </div>
 
@@ -228,6 +230,16 @@
         </button>
         <div class="faq-answer" hidden>
           <p>No. MoneyFirst does not directly connect to your bank account. Transaction data is entered by you, and all calculations are based on the values you provide.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" type="button" aria-expanded="false">
+          Does MoneyFirst work on mobile devices?
+          <span class="faq-icon" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-answer" hidden>
+          <p>Yes. MoneyFirst is designed to work on modern mobile browsers as well as desktop. For the best experience, keep your browser up to date and use portrait mode on smaller screens.</p>
         </div>
       </div>
 

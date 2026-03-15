@@ -25,19 +25,32 @@ service cloud.firestore {
       return hasMembership(ownerUid, memberUid) && membership(ownerUid, memberUid).status == 'active';
     }
 
+    function hasActiveRoleMembership(ownerUid, memberUid, role) {
+      return hasMembership(ownerUid, memberUid)
+        && membership(ownerUid, memberUid).status == 'active'
+        && membership(ownerUid, memberUid).role == role;
+    }
+
     function isActiveParentInviteProfile() {
       return resource.data.role == 'parent' && resource.data.inviteStatus == 'active';
     }
 
-    // Parent portal: signed-in parent can read a child if child is actively listed in parent's familyMembers.
+    // Parent can read child data either by direct membership under their own UID
+    // or through the child's primaryFamilyId membership records.
     function isActiveLinkedChild(childUid) {
-      return isSignedIn()
-        && hasMembership(request.auth.uid, childUid)
-        && membership(request.auth.uid, childUid).role == 'child'
-        && membership(request.auth.uid, childUid).status == 'active';
+      return isSignedIn() && (
+        hasActiveRoleMembership(request.auth.uid, childUid, 'child')
+        || (
+          exists(/databases/$(database)/documents/users/$(childUid))
+          && get(/databases/$(database)/documents/users/$(childUid)).data.role == 'child'
+          && get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId != null
+          && get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId != ''
+          && hasActiveRoleMembership(get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId, request.auth.uid, 'parent')
+          && hasActiveRoleMembership(get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId, childUid, 'child')
+        )
+      );
     }
 
-    // Family list visibility for linked-parent scenarios.
     function canReadFamilyMembers(ownerUid) {
       return isSelf(ownerUid)
         || isActiveMembership(ownerUid, request.auth.uid)
@@ -47,14 +60,39 @@ service cloud.firestore {
     function canViewChildTransactions(childUid) {
       return isActiveLinkedChild(childUid)
         && (
-          membership(request.auth.uid, childUid).permissions.canViewTransactions == true
-          || membership(request.auth.uid, childUid).permissions.canViewDashboardSummary == true
+          (
+            hasMembership(request.auth.uid, childUid)
+            && (
+              membership(request.auth.uid, childUid).permissions.canViewTransactions == true
+              || membership(request.auth.uid, childUid).permissions.canViewDashboardSummary == true
+            )
+          )
+          || (
+            exists(/databases/$(database)/documents/users/$(childUid))
+            && get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId != null
+            && hasMembership(get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId, childUid)
+            && (
+              membership(get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId, childUid).permissions.canViewTransactions == true
+              || membership(get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId, childUid).permissions.canViewDashboardSummary == true
+            )
+          )
         );
     }
 
     function canViewChildGoals(childUid) {
       return isActiveLinkedChild(childUid)
-        && membership(request.auth.uid, childUid).permissions.canViewGoals == true;
+        && (
+          (
+            hasMembership(request.auth.uid, childUid)
+            && membership(request.auth.uid, childUid).permissions.canViewGoals == true
+          )
+          || (
+            exists(/databases/$(database)/documents/users/$(childUid))
+            && get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId != null
+            && hasMembership(get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId, childUid)
+            && membership(get(/databases/$(database)/documents/users/$(childUid)).data.primaryFamilyId, childUid).permissions.canViewGoals == true
+          )
+        );
     }
 
     function isValidSelfMembershipWrite(memberUid) {
@@ -64,6 +102,29 @@ service cloud.firestore {
         && request.resource.data.status == 'active';
     }
 
+    function isValidInviteBasedMembershipCreate(ownerUid, memberUid) {
+      return isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.uid == memberUid
+        && request.resource.data.role in ['parent', 'child']
+        && request.resource.data.status == 'active'
+        && request.resource.data.joinedWithInviteCode is string
+        && request.resource.data.joinedWithInviteCode.size() == 6
+        && exists(/databases/$(database)/documents/users/$(ownerUid))
+        && get(/databases/$(database)/documents/users/$(ownerUid)).data.role == 'parent'
+        && get(/databases/$(database)/documents/users/$(ownerUid)).data.inviteStatus == 'active'
+        && get(/databases/$(database)/documents/users/$(ownerUid)).data.inviteCode == request.resource.data.joinedWithInviteCode;
+    }
+
+    // Allow linked parent to update only child color-coding fields.
+    function isAllowedChildPortalColorUpdate(userId) {
+      return isActiveLinkedChild(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'parentPortalColorHue',
+          'parentPortalColorUpdatedAt'
+        ]);
+    }
+
     match /users/{userId} {
       allow create: if isSelf(userId);
       allow read: if isSelf(userId)
@@ -71,13 +132,23 @@ service cloud.firestore {
         || isActiveLinkedChild(userId)
         || isActiveMembership(userId, request.auth.uid)
         || isActiveMembership(request.auth.uid, userId);
-      allow update, delete: if isSelf(userId);
+
+      allow update: if isSelf(userId) || isAllowedChildPortalColorUpdate(userId);
+      allow delete: if isSelf(userId);
 
       match /familyMembers/{memberUid} {
         allow read: if canReadFamilyMembers(userId) || isSelfMember(memberUid);
 
-        allow create, update: if isSelf(userId)
-          || (isSelfMember(memberUid) && isValidSelfMembershipWrite(memberUid));
+        allow create: if isSelf(userId)
+          || (
+            isSelfMember(memberUid)
+            && (
+              (userId == memberUid && isValidSelfMembershipWrite(memberUid))
+              || (userId != memberUid && isValidInviteBasedMembershipCreate(userId, memberUid))
+            )
+          );
+
+        allow update: if isSelf(userId);
 
         allow delete: if isSelf(userId) || isSelfMember(memberUid);
       }
@@ -89,7 +160,6 @@ service cloud.firestore {
 
       match /savingsGoals/{goalId} {
         allow read: if isSelf(userId) || canViewChildGoals(userId);
-        // Parent portal can create goals for actively linked children.
         allow create: if isSelf(userId) || isActiveLinkedChild(userId);
         allow update, delete: if isSelf(userId);
       }

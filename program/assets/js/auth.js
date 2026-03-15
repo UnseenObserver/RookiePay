@@ -249,6 +249,7 @@ async function provisionUserProfile({
       uid,
       role: 'child',
       status: 'active',
+      joinedWithInviteCode: normalizeInviteCode(linkedFamily.inviteCode || ''),
       displayName: displayName || username,
       email,
       permissions: getDefaultMemberPermissions('child'),
